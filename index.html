@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Copy the Gene: Race & Leaderboard</title>
-<!-- Firebase SDKs for Global Leaderboard -->
+<title>Copy the Gene: Race, Shop & Duel</title>
+<!-- Firebase SDKs for Global Leaderboard & Duels -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <style>
@@ -42,7 +42,7 @@ button:focus-visible{outline:3px solid var(--cor);outline-offset:2px}
 .pad{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px}
 .pad .btn{padding:14px 0;font-size:1.3rem}
 .big{font-size:2.6rem;font-weight:800;margin:0}
-.tbar{height:12px;background:rgba(128,128,128,.25);border-radius:9px;overflow:hidden;border:2px solid var(--line)}
+.tbar{height:12px;background:rgba(128,128,128,.25);border-radius:999px;overflow:hidden;border:2px solid var(--line)}
 .tbar i{display:block;height:100%;width:100%;background:var(--mint)}
 .tc{text-align:right;font-weight:800;font-size:.9rem;margin:2px 0 6px}
 .lb{margin-top:18px}
@@ -57,6 +57,8 @@ input[type="text"]{font:inherit;font-weight:800;text-align:center;width:100%;pad
 .pwr-btn:disabled{opacity:.4;cursor:not-allowed}
 .shop-item{display:flex;justify-content:space-between;align-items:center;background:var(--bg);border:2px solid var(--line);border-radius:12px;padding:10px;margin:8px 0}
 .shop-item div{text-align:left}
+.opp{background:var(--sky);color:#10243f;border:2px solid var(--line);border-radius:12px;padding:6px 12px;margin-bottom:10px;font-weight:700;font-size:.9rem}
+.code{font-size:2.4rem;font-weight:800;letter-spacing:.25em;text-align:center;margin:10px 0}
 </style>
 </head>
 <body>
@@ -67,6 +69,7 @@ input[type="text"]{font:inherit;font-weight:800;text-align:center;width:100%;pad
   <span id="st"></span>
   <span id="cc">🪙 0</span>
 </div>
+<div class="opp" id="op" hidden></div>
 <div class="card" id="g"></div>
 </main>
 <script>
@@ -77,11 +80,13 @@ var firebaseConfig = {
 if (!firebase.apps.length) { firebase.initializeApp(firebaseConfig); }
 var db = firebase.database();
 
-var g=document.getElementById("g"), hud=document.getElementById("hud");
+var g=document.getElementById("g"), hud=document.getElementById("hud"), OP=document.getElementById("op");
+var MODE="solo", ROOM_CODE="", PH="";
 var hearts,score,streak,si,qi,locked,seq,pos,pb=0,coins=0,tmr=null,tl=0,tt=1;
 var playerName = "Player" + Math.floor(1000 + Math.random() * 9000);
 var playerId = "usr_" + Math.random().toString(36).substr(2, 9);
 var leaderboardData = [];
+var duelRef = null, opponentData = null;
 
 var items={heart:0,freeze:0,double:0};
 var doubleCoinActive=false;
@@ -105,12 +110,10 @@ function saveState(){
   }catch(e){}
 }
 
-// Fetch Global Leaderboard in Realtime
+// Fetch Global Leaderboard
 db.ref("leaderboard").orderByChild("best").limitToLast(50).on("value", function(snapshot) {
   var list = [];
-  snapshot.forEach(function(child) {
-    list.push(child.val());
-  });
+  snapshot.forEach(function(child) { list.push(child.val()); });
   list.sort(function(a,b){ return b.best - a.best; });
   leaderboardData = list;
   drawLB();
@@ -177,9 +180,13 @@ function hudUp(){
   document.getElementById("ss").textContent="⭐ "+score;
   document.getElementById("st").textContent="🔥 "+streak;
   document.getElementById("cc").textContent="🪙 "+coins;
+  if(MODE==="duel" && duelRef){
+    duelRef.child("players/" + playerId).update({ score: score, hearts: Math.max(hearts,0), stage: si, name: playerName });
+  }
 }
 
 function powerBar(){
+  if(MODE==="duel") return '';
   return '<div class="pwr-bar">'+
     '<button class="pwr-btn" onclick="usePwr(\'heart\')" '+(items.heart<=0||hearts>=3?'disabled':'')+'>❤️ +1 ('+items.heart+')</button>'+
     '<button class="pwr-btn" onclick="usePwr(\'freeze\')" '+(items.freeze<=0?'disabled':'')+'>⏱️ +5s ('+items.freeze+')</button>'+
@@ -225,20 +232,23 @@ function changeName(){
 }
 
 function title(){
- stopT();hud.hidden=true;doubleCoinActive=false;
+ stopT();hud.hidden=true;OP.hidden=true;MODE="solo";doubleCoinActive=false;
+ if(duelRef) { duelRef.off(); duelRef=null; }
  g.className="card hero";
  g.innerHTML='<h1>Copy the Gene ⏱</h1><p>Race against the clock to copy DNA into RNA and conquer transcription biology!</p>'+
  '<div class="row">'+
  '<button class="btn" id="go">Play Game</button>'+
  '<button class="btn" id="shp" style="background:var(--mint)">🛍️ Shop</button>'+
+ '<button class="btn" id="dl">⚔️ 1v1 Duel</button>'+
  '</div><div class="lb" id="lb"></div>';
  document.getElementById("go").onclick=function(){hearts=3;score=0;streak=0;si=0;intro()};
  document.getElementById("shp").onclick=openShop;
+ document.getElementById("dl").onclick=duelMenu;
  drawLB();
 }
 
 function openShop(){
-  stopT();hud.hidden=true;
+  stopT();hud.hidden=true;OP.hidden=true;
   g.className="card";
   g.innerHTML='<h2>🛍️ Game Shop</h2><p>Balance: <b>🪙 '+coins+' coins</b></p>'+
   '<div class="shop-item"><div><b>❤️ Extra Heart</b><br><small>Restores 1 heart mid-game</small></div><button class="btn" onclick="buyItem(\'heart\', 50)">50 🪙</button></div>'+
@@ -260,6 +270,74 @@ function buyItem(type, cost){
   } else {
     sfb.textContent="❌ Not enough coins!";
   }
+}
+
+/* 1v1 DUEL SYSTEM VIA FIREBASE */
+function duelMenu(){
+  stopT();hud.hidden=true;OP.hidden=true;g.className="card";
+  g.innerHTML='<h2>1v1 Duel ⚔️</h2><p>Play identical questions live against a friend!</p>'+
+  '<button class="btn" id="mk">Create Room Code</button>'+
+  '<p>Or enter a friend\'s 4-letter room code:</p>'+
+  '<div><input type="text" id="cd" maxlength="4" placeholder="CODE"><button class="btn" id="jn">Join Duel</button></div>'+
+  '<div class="fb" id="er"></div><button class="opt" id="bk">Back</button>';
+  document.getElementById("bk").onclick=title;
+  document.getElementById("mk").onclick=function(){
+    var c=""; var a="ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+    for(var i=0;i<4;i++) c+=a[Math.floor(Math.random()*a.length)];
+    joinDuelRoom(c);
+  };
+  document.getElementById("jn").onclick=function(){
+    var c=document.getElementById("cd").value.trim().toUpperCase();
+    if(c.length!==4){ document.getElementById("er").textContent="Enter a 4-character room code."; return; }
+    joinDuelRoom(c);
+  };
+}
+
+function joinDuelRoom(code){
+  ROOM_CODE = code; MODE = "duel"; PH = "lobby";
+  duelRef = db.ref("duels/" + code);
+  duelRef.child("players/" + playerId).set({ name: playerName, ready: false, score: 0, hearts: 3, stage: 0, done: false });
+  duelRef.child("players/" + playerId).onDisconnect().remove();
+  
+  duelRef.on("value", function(snap){
+    var val = snap.val();
+    if(!val || !val.players) return;
+    var players = val.players;
+    var keys = Object.keys(players);
+    var oppKey = keys.find(k => k !== playerId);
+    opponentData = oppKey ? players[oppKey] : null;
+
+    if(PH === "lobby") drawDuelLobby();
+    else if(PH === "play") updateOpponentHUD();
+    else if(PH === "end") drawDuelEnd();
+
+    if(PH === "lobby" && keys.length === 2 && players[playerId].ready && opponentData && opponentData.ready){
+      PH = "play"; hearts = 3; score = 0; streak = 0; si = 0; OP.hidden = false;
+      updateOpponentHUD(); intro();
+    }
+  });
+  drawDuelLobby();
+}
+
+function drawDuelLobby(){
+  g.className = "card";
+  var isReady = false;
+  db.ref("duels/" + ROOM_CODE + "/players/" + playerId + "/ready").once("value", s => isReady = s.val());
+  
+  g.innerHTML = '<h2>Duel Lobby</h2><p>Share this code with your opponent:</p><div class="code">'+esc(ROOM_CODE)+'</div>'+
+  '<p>'+(opponentData ? '⚔️ <b>'+esc(opponentData.name)+'</b> is here ' + (opponentData.ready ? 'and ready!' : '(waiting...)') : 'Waiting for opponent to join...')+'</p>'+
+  '<button class="btn" id="rd" '+(opponentData ? '' : 'disabled')+'>' + (isReady ? 'Ready! Waiting for start...' : 'I\'m Ready') + '</button> '+
+  '<button class="opt" id="bk">Leave</button>';
+  
+  document.getElementById("bk").onclick = title;
+  document.getElementById("rd").onclick = function(){
+    duelRef.child("players/" + playerId + "/ready").set(true);
+  };
+}
+
+function updateOpponentHUD(){
+  if(!opponentData) { OP.textContent = "⚔️ Opponent disconnected"; return; }
+  OP.textContent = "⚔️ " + esc(opponentData.name) + ": ⭐ " + (opponentData.score||0) + "  ❤️ " + (opponentData.hearts??3) + "  Stage " + ((opponentData.stage||0)+1) + (opponentData.done ? " ✔" : "");
 }
 
 function intro(){
@@ -352,6 +430,12 @@ function win(){
  if(isNewBest){ pb = score; saveState(); }
  submitScoreToGlobal(score);
  hudUp();
+ if(MODE==="duel"){
+   PH="end";
+   duelRef.child("players/" + playerId).update({ done: true, score: score });
+   drawDuelEnd();
+   return;
+ }
  var r=hearts===3?"Transcription Legend 🏆":hearts===2?"RNAP Pro 🥇":"Survivor 🥈";
  g.innerHTML='<p class="big">'+score+'</p><h2>'+r+'</h2><p>Boss defeated! Bonus +'+bonus+' pts & +50 🪙 for completion.'+(isNewBest?' <b>New Personal Best! 🎉</b>':'')+'</p><button class="btn" id="go">Play Again</button><div class="lb" id="lb"></div>';
  document.getElementById("go").onclick=title;drawLB();
@@ -362,8 +446,29 @@ function over(){
  var isNewBest = score > pb;
  if(isNewBest){ pb = score; saveState(); }
  submitScoreToGlobal(score);
+ if(MODE==="duel"){
+   PH="end";
+   duelRef.child("players/" + playerId).update({ done: true, score: score });
+   drawDuelEnd();
+   return;
+ }
  g.innerHTML='<h2>Game over 💔</h2><p>You fell off the DNA at stage '+(si+1)+'. Score: '+score+(isNewBest?'. <b>New Personal Best!</b>':'.')+'</p><button class="btn" id="go">Try Again</button><div class="lb" id="lb"></div>';
  document.getElementById("go").onclick=title;drawLB();
+}
+
+function drawDuelEnd(){
+  var h='<p class="big">'+score+'</p>';
+  if(!opponentData) h+='<h2>Opponent left 🏳️</h2><p>You win by forfeit!</p>';
+  else if(!opponentData.done) h+='<h2>Finished!</h2><p>Waiting for '+esc(opponentData.name)+' to complete their run... (Current: '+opponentData.score+' pts)</p>';
+  else {
+    var oppScore = opponentData.score || 0;
+    if(score > oppScore) h+='<h2>You Win! 🏆</h2>';
+    else if(score < oppScore) h+='<h2>You Lost 💔</h2>';
+    else h+='<h2>Draw! 🤝</h2>';
+    h+='<p>Your Score: '+score+' vs '+esc(opponentData.name)+': '+oppScore+'</p>';
+  }
+  g.innerHTML=h+'<button class="btn" id="go">Main Menu</button>';
+  document.getElementById("go").onclick=title;
 }
 
 title();
