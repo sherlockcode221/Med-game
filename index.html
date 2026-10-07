@@ -3,7 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Copy the Gene: Race + Duel</title>
+<title>Copy the Gene: Race & Leaderboard</title>
+<!-- Firebase SDKs for Global Leaderboard -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <style>
 :root{--bg:#fff8ec;--ink:#1d2a4a;--card:#fff;--line:#1d2a4a;--yel:#ffc83d;--cor:#ff6b57;--mint:#5fd3a6;--sky:#8cc8ff;--mut:#5b6785;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121a30;--ink:#fff4dc;--card:#1c2745;--line:#fff4dc;--mut:#a9b3d1}}
@@ -19,7 +22,7 @@ main{max-width:520px;margin:0 auto;padding:14px 14px 50px}
 h1{font-size:2.2rem;line-height:1.05;margin:0 0 8px;letter-spacing:-.02em}
 h2{margin:0 0 6px;font-size:1.3rem}
 p{margin:6px 0}
-.bar{height:10px;background:rgba(128,128,128,.25);border-radius:9px;overflow:hidden;margin:0 0 12px}
+.bar{height:10px;background:rgba(128,128,128,.25);border-radius:999px;overflow:hidden;margin:0 0 12px}
 .bar i{display:block;height:100%;background:var(--cor);transition:width .3s}
 .btn{font:inherit;font-weight:800;color:#1d2a4a;background:var(--yel);border:3px solid var(--line);border-radius:14px;padding:11px 18px;cursor:pointer;box-shadow:3px 3px 0 var(--line)}
 .btn:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--line)}
@@ -47,10 +50,8 @@ button:focus-visible{outline:3px solid var(--cor);outline-offset:2px}
 .lb li{display:flex;justify-content:space-between;gap:8px;background:var(--bg);border:2px solid var(--line);border-radius:12px;padding:8px 12px;margin:6px 0;font-weight:700}
 .lb li.me{background:var(--yel);color:#1d2a4a}
 .lb li span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.opp{background:var(--sky);color:#10243f;border:2px solid var(--line);border-radius:12px;padding:6px 12px;margin-bottom:10px;font-weight:700;font-size:.9rem}
-input{font:inherit;font-weight:800;text-transform:uppercase;letter-spacing:.2em;text-align:center;width:6.5em;padding:10px;border:3px solid var(--line);border-radius:12px;background:var(--bg);color:var(--ink);margin-right:8px}
+input[type="text"]{font:inherit;font-weight:800;text-align:center;width:100%;padding:10px;border:3px solid var(--line);border-radius:12px;background:var(--bg);color:var(--ink);margin:8px 0}
 .row{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
-.code{font-size:2.4rem;font-weight:800;letter-spacing:.25em}
 .pwr-bar{display:flex;gap:6px;margin:10px 0}
 .pwr-btn{flex:1;padding:6px;font-size:.85rem;background:var(--bg);border:2px solid var(--line);border-radius:10px;font-weight:800;cursor:pointer;color:var(--ink)}
 .pwr-btn:disabled{opacity:.4;cursor:not-allowed}
@@ -66,15 +67,22 @@ input{font:inherit;font-weight:800;text-transform:uppercase;letter-spacing:.2em;
   <span id="st"></span>
   <span id="cc">🪙 0</span>
 </div>
-<div class="opp" id="op" hidden></div>
 <div class="card" id="g"></div>
 </main>
 <script>
-var g=document.getElementById("g"),hud=document.getElementById("hud"),OP=document.getElementById("op");
-var MODE="solo",ROOM=null,RM=null,PH="",CODE="",rnd=Math.random,myReady=false,onm={};
-var hearts,score,streak,si,qi,locked,seq,pos,pb=0,coins=0,tmr=null,tl=0,tt=1,DB=null,USER=null,ME=null,rows=[],names={};
+// Global Firebase Realtime Database
+var firebaseConfig = {
+  databaseURL: "https://med-game-leaderboard-default-rtdb.firebaseio.com"
+};
+if (!firebase.apps.length) { firebase.initializeApp(firebaseConfig); }
+var db = firebase.database();
 
-// Items Inventory & Multipliers
+var g=document.getElementById("g"), hud=document.getElementById("hud");
+var hearts,score,streak,si,qi,locked,seq,pos,pb=0,coins=0,tmr=null,tl=0,tt=1;
+var playerName = "Player" + Math.floor(1000 + Math.random() * 9000);
+var playerId = "usr_" + Math.random().toString(36).substr(2, 9);
+var leaderboardData = [];
+
 var items={heart:0,freeze:0,double:0};
 var doubleCoinActive=false;
 
@@ -82,6 +90,10 @@ try{
   pb=+localStorage.getItem("ctg_pb")||0;
   coins=+localStorage.getItem("ctg_coins")||0;
   items=JSON.parse(localStorage.getItem("ctg_items"))||{heart:0,freeze:0,double:0};
+  var savedName = localStorage.getItem("ctg_name");
+  if(savedName) playerName = savedName;
+  var savedId = localStorage.getItem("ctg_id");
+  if(savedId) playerId = savedId; else localStorage.setItem("ctg_id", playerId);
 }catch(e){}
 
 function saveState(){
@@ -89,7 +101,29 @@ function saveState(){
     localStorage.setItem("ctg_pb",pb);
     localStorage.setItem("ctg_coins",coins);
     localStorage.setItem("ctg_items",JSON.stringify(items));
+    localStorage.setItem("ctg_name",playerName);
   }catch(e){}
+}
+
+// Fetch Global Leaderboard in Realtime
+db.ref("leaderboard").orderByChild("best").limitToLast(50).on("value", function(snapshot) {
+  var list = [];
+  snapshot.forEach(function(child) {
+    list.push(child.val());
+  });
+  list.sort(function(a,b){ return b.best - a.best; });
+  leaderboardData = list;
+  drawLB();
+});
+
+function submitScoreToGlobal(finalScore){
+  if(finalScore <= 0) return;
+  db.ref("leaderboard/" + playerId).transaction(function(current) {
+    if(!current || finalScore > (current.best || 0)){
+      return { id: playerId, name: playerName, best: finalScore, t: Date.now() };
+    }
+    return current;
+  });
 }
 
 var COMP={A:"U",T:"A",G:"C",C:"G"};
@@ -123,7 +157,7 @@ var S=[
 S[1].sec=10;S[2].sec=9;S[3].sec=9;S[4].sec=6;
 
 function esc(t){return String(t).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
-function shuf(a){for(var i=a.length-1;i>0;i--){var j=Math.floor(rnd()*(i+1));var t=a[i];a[i]=a[j];a[j]=t}return a}
+function shuf(a){for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=a[i];a[i]=a[j];a[j]=t}return a}
 function stopT(){clearInterval(tmr);tmr=null}
 function startT(sec,end){stopT();tt=sec;tl=sec;tmr=setInterval(function(){tl-=.1;var b=document.getElementById("tb"),c=document.getElementById("tc");
  if(b){b.style.width=Math.max(0,tl/tt*100)+"%";b.style.background=tl/tt<.3?"var(--cor)":"var(--mint)"}
@@ -139,7 +173,6 @@ function addCoins(amount){
 
 function hudUp(){
   hud.hidden=false;
-  if(MODE==="duel"&&ROOM&&PH==="play")ROOM.presence({score:score,hearts:Math.max(hearts,0),st:si}).catch(function(){});
   document.getElementById("hh").textContent="❤️".repeat(Math.max(hearts,0))+"🖤".repeat(3-Math.max(hearts,0));
   document.getElementById("ss").textContent="⭐ "+score;
   document.getElementById("st").textContent="🔥 "+streak;
@@ -147,7 +180,6 @@ function hudUp(){
 }
 
 function powerBar(){
-  if(MODE==="duel") return '';
   return '<div class="pwr-bar">'+
     '<button class="pwr-btn" onclick="usePwr(\'heart\')" '+(items.heart<=0||hearts>=3?'disabled':'')+'>❤️ +1 ('+items.heart+')</button>'+
     '<button class="pwr-btn" onclick="usePwr(\'freeze\')" '+(items.freeze<=0?'disabled':'')+'>⏱️ +5s ('+items.freeze+')</button>'+
@@ -156,13 +188,9 @@ function powerBar(){
 }
 
 function usePwr(type){
-  if(type==='heart' && items.heart>0 && hearts<3){
-    items.heart--; hearts++;
-  }else if(type==='freeze' && items.freeze>0){
-    items.freeze--; tl+=5; tt+=5;
-  }else if(type==='double' && items.double>0 && !doubleCoinActive){
-    items.double--; doubleCoinActive=true;
-  }
+  if(type==='heart' && items.heart>0 && hearts<3){ items.heart--; hearts++; }
+  else if(type==='freeze' && items.freeze>0){ items.freeze--; tl+=5; tt+=5; }
+  else if(type==='double' && items.double>0 && !doubleCoinActive){ items.double--; doubleCoinActive=true; }
   saveState();hudUp();
   var el = document.getElementById("pwr-container");
   if(el) el.innerHTML = powerBar();
@@ -170,27 +198,42 @@ function usePwr(type){
 
 function drawLB(){
   var el=document.getElementById("lb");if(!el)return;
-  var h='<p><b>Your best: '+pb+' | 🪙 Total Coins: '+coins+'</b></p>';
-  if(DB){h+='<h2>🏆 Players ('+rows.length+')</h2>';
-   if(!rows.length)h+='<p>No scores yet. Be the first!</p>';
-   else{h+='<ol>';rows.forEach(function(r,i){var n=(names[r.id]&&names[r.id].name)||"Player";var m=["🥇","🥈","🥉"][i]||(i+1)+".";
-    h+='<li class="'+(r.id===ME?"me":"")+'"><span>'+m+" "+esc(n)+(r.id===ME?" (you)":"")+'</span><span>'+r.best+'<small>×'+r.runs+'</small></span></li>'});h+='</ol>'}}
+  var h='<p><b>Your Name:</b> '+esc(playerName)+' <button class="btn" style="padding:2px 8px;font-size:.8rem" onclick="changeName()">Edit</button></p>';
+  h+='<p><b>Your Best: '+pb+' pts | 🪙 Balance: '+coins+'</b></p>';
+  h+='<h2>🏆 Global Leaderboard ('+leaderboardData.length+')</h2>';
+  if(!leaderboardData.length) h+='<p>No global high scores yet. Be the first!</p>';
+  else{
+    h+='<ol>';
+    leaderboardData.forEach(function(r,i){
+      var medal = ["🥇","🥈","🥉"][i] || (i+1)+".";
+      var isMe = r.id === playerId;
+      h+='<li class="'+(isMe?"me":"")+'"><span>'+medal+' '+esc(r.name)+(isMe?' (You)':'')+'</span><span>'+r.best+' pts</span></li>';
+    });
+    h+='</ol>';
+  }
   el.innerHTML=h;
 }
 
+function changeName(){
+  var newName = prompt("Enter your player name for the global leaderboard:", playerName);
+  if(newName && newName.trim()){
+    playerName = newName.trim().substring(0, 18);
+    saveState();
+    if(pb > 0) submitScoreToGlobal(pb);
+    drawLB();
+  }
+}
+
 function title(){
- stopT();hud.hidden=true;OP.hidden=true;PH="";MODE="solo";rnd=Math.random;myReady=false;doubleCoinActive=false;
- if(ROOM){ROOM.leave().catch(function(){});ROOM=null}
+ stopT();hud.hidden=true;doubleCoinActive=false;
  g.className="card hero";
- g.innerHTML='<h1>Copy the Gene ⏱</h1><p>Every answer is on the clock. Faster = more points. 5 stages, 3 hearts.</p>'+
+ g.innerHTML='<h1>Copy the Gene ⏱</h1><p>Race against the clock to copy DNA into RNA and conquer transcription biology!</p>'+
  '<div class="row">'+
- '<button class="btn" id="go">Solo race</button>'+
+ '<button class="btn" id="go">Play Game</button>'+
  '<button class="btn" id="shp" style="background:var(--mint)">🛍️ Shop</button>'+
- '<button class="btn" id="dl">⚔️ 1v1 duel</button>'+
  '</div><div class="lb" id="lb"></div>';
  document.getElementById("go").onclick=function(){hearts=3;score=0;streak=0;si=0;intro()};
  document.getElementById("shp").onclick=openShop;
- document.getElementById("dl").onclick=duelMenu;
  drawLB();
 }
 
@@ -256,7 +299,7 @@ function pick(k,b){
 }
 
 function newRound(){
- var L=5+qi,a="ACGT";seq=[];for(var i=0;i<L;i++)seq.push(a[Math.floor(rnd()*4)]);pos=0;locked=false;drawBuild();
+ var L=5+qi,a="ACGT";seq=[];for(var i=0;i<L;i++)seq.push(a[Math.floor(Math.random()*4)]);pos=0;locked=false;drawBuild();
  startT(4+L*1.6,function(){buildTimeout()});
 }
 
@@ -304,76 +347,26 @@ function stageDone(){
 }
 
 function win(){
- var bonus=hearts*20;score+=bonus;addCoins(50);saveState();hudUp();if(MODE==="duel")return duelEnd();var nb=score>pb;
- if(score>pb){pb=score;saveState();}
+ var bonus=hearts*20;score+=bonus;addCoins(50);
+ var isNewBest = score > pb;
+ if(isNewBest){ pb = score; saveState(); }
+ submitScoreToGlobal(score);
+ hudUp();
  var r=hearts===3?"Transcription Legend 🏆":hearts===2?"RNAP Pro 🥇":"Survivor 🥈";
- g.innerHTML='<p class="big">'+score+'</p><h2>'+r+'</h2><p>Boss defeated! Bonus +'+bonus+' pts & +50 🪙 for completion.'+(nb?' <b>New personal best! 🎉</b>':'')+'</p><button class="btn" id="go">Race again</button><div class="lb" id="lb"></div>';
+ g.innerHTML='<p class="big">'+score+'</p><h2>'+r+'</h2><p>Boss defeated! Bonus +'+bonus+' pts & +50 🪙 for completion.'+(isNewBest?' <b>New Personal Best! 🎉</b>':'')+'</p><button class="btn" id="go">Play Again</button><div class="lb" id="lb"></div>';
  document.getElementById("go").onclick=title;drawLB();
 }
 
 function over(){
- stopT();if(MODE==="duel")return duelEnd();var nb=score>pb;
- if(score>pb){pb=score;saveState();}
- g.innerHTML='<h2>Game over 💔</h2><p>You fell off the DNA at stage '+(si+1)+'. Score: '+score+(nb?'. <b>New personal best!</b>':'.')+'</p><button class="btn" id="go">Try again</button><div class="lb" id="lb"></div>';
+ stopT();
+ var isNewBest = score > pb;
+ if(isNewBest){ pb = score; saveState(); }
+ submitScoreToGlobal(score);
+ g.innerHTML='<h2>Game over 💔</h2><p>You fell off the DNA at stage '+(si+1)+'. Score: '+score+(isNewBest?'. <b>New Personal Best!</b>':'.')+'</p><button class="btn" id="go">Try Again</button><div class="lb" id="lb"></div>';
  document.getElementById("go").onclick=title;drawLB();
 }
 
-function mk(a){return function(){a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
-function hc(x){var h=7;for(var i=0;i<x.length;i++)h=(h*31+x.charCodeAt(i))|0;return h}
-function getOpp(){if(!ROOM)return null;var o=ROOM.peers().filter(function(p){return !p.isMe&&p.kind==="viewer"});return o[0]||null}
-function oppName(p){var k=p&&p.by;if(k&&onm[k])return onm[k];if(k&&USER)USER.profiles([k]).then(function(r){onm[k]=(r&&r[k]&&r[k].name)||"Opponent";onDuelPeers()}).catch(function(){});return "Opponent"}
-
-function duelMenu(){
- stopT();hud.hidden=true;OP.hidden=true;g.className="card";
- g.innerHTML='<h2>1v1 Duel ⚔️</h2><p>Same questions, same clock. Higher score wins.</p><button class="btn" id="mk">Create duel</button><p>Or join a friend with their code:</p><div><input id="cd" maxlength="4" placeholder="CODE" aria-label="Duel code"><button class="btn" id="jn">Join</button></div><div class="fb" id="er" aria-live="polite"></div><button class="opt" id="bk">Back</button>';
- document.getElementById("bk").onclick=title;
- document.getElementById("mk").onclick=function(){var a="ABCDEFGHJKMNPQRSTUVWXYZ23456789",c="";for(var i=0;i<4;i++)c+=a[Math.floor(Math.random()*a.length)];joinDuel(c)};
- document.getElementById("jn").onclick=function(){var c=document.getElementById("cd").value.trim().toUpperCase();if(c.length!==4){document.getElementById("er").textContent="Enter the 4-character code.";return}joinDuel(c)};
-}
-
-async function joinDuel(c){
- var er=document.getElementById("er");er.textContent="Joining...";
- var r0=await getRoom();
- if(!r0){er.textContent="Duels need live rooms, which this view doesn't offer. Open the page from the claude.ai link (signed in) and try again.";return}
- try{var r=await r0.join("duel-"+c.toLowerCase());
-  ROOM=r;CODE=c;MODE="duel";PH="lobby";myReady=false;rnd=mk(hc(c));
-  r.presence({ready:false,score:0,hearts:3,st:0,done:false}).catch(function(){});r.onPeers(onDuelPeers);drawLobby()
- }catch(e){er.textContent="Couldn't join ("+((e&&e.code)||"error")+"). "+(e&&e.code==="not_permitted"?"Your access level may not allow live rooms.":"Try again in a moment.")}
-}
-
-function drawLobby(){
- var o=getOpp(),ready=o&&o.presence.ready;
- g.className="card";
- g.innerHTML='<h2>Duel lobby</h2><p>Share this code with your opponent:</p><div class="code">'+esc(CODE)+'</div><p>'+(o?'⚔️ <b>'+esc(oppName(o))+'</b> is here'+(ready?' and ready!':'.'):'Waiting for an opponent...')+'</p>'+
- '<button class="btn" id="rd"'+(o&&!myReady?'':' disabled')+'>'+(myReady?'Ready ✔ waiting...':'I\'m ready')+'</button> <button class="opt" id="bk">Leave</button>';
- document.getElementById("bk").onclick=title;
- document.getElementById("rd").onclick=function(){myReady=true;ROOM.presence({ready:true}).catch(function(){});drawLobby()};
- if(o&&ready&&myReady){PH="play";hearts=3;score=0;streak=0;si=0;OP.hidden=false;updOpp();intro()}
-}
-
-function updOpp(){var o=getOpp();if(!o){OP.textContent="⚔️ Opponent left";return}var p=o.presence;OP.textContent="⚔️ "+oppName(o)+": ⭐ "+(p.score||0)+"  ❤️ "+(p.hearts==null?3:p.hearts)+"  stage "+((p.st||0)+1)+(p.done?" ✔":"")}
-function onDuelPeers(){if(!ROOM)return;if(PH==="lobby")drawLobby();else if(PH==="play")updOpp();else if(PH==="end"){updOpp();drawEnd()}}
-function duelEnd(){PH="end";hudUp();ROOM.presence({done:true,score:score,hearts:Math.max(hearts,0)}).catch(function(){});drawEnd()}
-
-function drawEnd(){
- var o=getOpp(),p=o&&o.presence,h='<p class="big">'+score+'</p>';
- if(!o)h+='<h2>Opponent left 🏳️</h2><p>You win by forfeit.</p>';
- else if(!p.done)h+='<h2>Finished!</h2><p>Waiting for '+esc(oppName(o))+' to finish... (they have '+(p.score||0)+')</p>';
- else{var t=p.score||0;h+=score>t?'<h2>You win! 🏆</h2>':score<t?'<h2>You lost 💔</h2>':'<h2>Draw 🤝</h2>';h+='<p>You '+score+' vs '+esc(oppName(o))+' '+t+'</p>'}
- g.innerHTML=h+'<button class="btn" id="go">Back to menu</button>';
- document.getElementById("go").onclick=title;
-}
-
 title();
-
-async function getRoom(){if(RM)return RM;try{if(window.claude&&claude.use)RM=await claude.use("room")}catch(e){}return RM}
-getRoom();
-(async function(){var c=window.claude;if(!c||!c.use)return;
- try{USER=await c.use("user");if(USER){ME=await USER.id()}}catch(e){}
- try{var db=await c.use("db");if(!db)return;DB=db;
-  db.collection("lb").orderBy("best","desc").limit(100).onSnapshot(function(s){rows=s.docs.map(function(d){return{id:d.id,best:+d.data().best||0,runs:+d.data().runs||1}});resolveNames()},function(){});
-  drawLB()}catch(e){}
-})();
 </script>
 </body>
 </html>
