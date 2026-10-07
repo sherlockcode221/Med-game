@@ -73,7 +73,6 @@ input[type="text"]{font:inherit;font-weight:800;text-align:center;width:100%;pad
 <div class="card" id="g"></div>
 </main>
 <script>
-// Global Firebase Realtime Database
 var firebaseConfig = {
   databaseURL: "https://med-game-leaderboard-default-rtdb.firebaseio.com"
 };
@@ -86,7 +85,7 @@ var hearts,score,streak,si,qi,locked,seq,pos,pb=0,coins=0,tmr=null,tl=0,tt=1;
 var playerName = "Player" + Math.floor(1000 + Math.random() * 9000);
 var playerId = "usr_" + Math.random().toString(36).substr(2, 9);
 var leaderboardData = [];
-var duelRef = null, opponentData = null;
+var duelRef = null, allPlayersInRoom = {}, myReadyState = false;
 
 var items={heart:0,freeze:0,double:0};
 var doubleCoinActive=false;
@@ -110,7 +109,6 @@ function saveState(){
   }catch(e){}
 }
 
-// Fetch Global Leaderboard
 db.ref("leaderboard").orderByChild("best").limitToLast(50).on("value", function(snapshot) {
   var list = [];
   snapshot.forEach(function(child) { list.push(child.val()); });
@@ -181,7 +179,7 @@ function hudUp(){
   document.getElementById("st").textContent="🔥 "+streak;
   document.getElementById("cc").textContent="🪙 "+coins;
   if(MODE==="duel" && duelRef){
-    duelRef.child("players/" + playerId).update({ score: score, hearts: Math.max(hearts,0), stage: si, name: playerName });
+    duelRef.child(playerId).update({ score: score, hearts: Math.max(hearts,0), stage: si, name: playerName });
   }
 }
 
@@ -272,7 +270,7 @@ function buyItem(type, cost){
   }
 }
 
-/* 1v1 DUEL SYSTEM VIA FIREBASE */
+/* REFIXED 1v1 DUEL REAL-TIME SYNC */
 function duelMenu(){
   stopT();hud.hidden=true;OP.hidden=true;g.className="card";
   g.innerHTML='<h2>1v1 Duel ⚔️</h2><p>Play identical questions live against a friend!</p>'+
@@ -294,48 +292,45 @@ function duelMenu(){
 }
 
 function joinDuelRoom(code){
-  ROOM_CODE = code; MODE = "duel"; PH = "lobby";
-  duelRef = db.ref("duels/" + code);
-  duelRef.child("players/" + playerId).set({ name: playerName, ready: false, score: 0, hearts: 3, stage: 0, done: false });
-  duelRef.child("players/" + playerId).onDisconnect().remove();
+  ROOM_CODE = code; MODE = "duel"; PH = "lobby"; myReadyState = false; allPlayersInRoom = {};
+  duelRef = db.ref("rooms/" + code);
   
+  duelRef.child(playerId).set({ name: playerName, ready: false, score: 0, hearts: 3, stage: 0, done: false });
+  duelRef.child(playerId).onDisconnect().remove();
+
   duelRef.on("value", function(snap){
-    var val = snap.val();
-    if(!val || !val.players) return;
-    var players = val.players;
-    var keys = Object.keys(players);
+    allPlayersInRoom = snap.val() || {};
+    var keys = Object.keys(allPlayersInRoom);
     var oppKey = keys.find(k => k !== playerId);
-    opponentData = oppKey ? players[oppKey] : null;
+    var opponentData = oppKey ? allPlayersInRoom[oppKey] : null;
 
-    if(PH === "lobby") drawDuelLobby();
-    else if(PH === "play") updateOpponentHUD();
-    else if(PH === "end") drawDuelEnd();
+    if(PH === "lobby") drawDuelLobby(opponentData);
+    else if(PH === "play") updateOpponentHUD(opponentData);
+    else if(PH === "end") drawDuelEnd(opponentData);
 
-    if(PH === "lobby" && keys.length === 2 && players[playerId].ready && opponentData && opponentData.ready){
+    if(PH === "lobby" && keys.length === 2 && myReadyState && opponentData && opponentData.ready){
       PH = "play"; hearts = 3; score = 0; streak = 0; si = 0; OP.hidden = false;
-      updateOpponentHUD(); intro();
+      updateOpponentHUD(opponentData); intro();
     }
   });
-  drawDuelLobby();
 }
 
-function drawDuelLobby(){
+function drawDuelLobby(opponentData){
   g.className = "card";
-  var isReady = false;
-  db.ref("duels/" + ROOM_CODE + "/players/" + playerId + "/ready").once("value", s => isReady = s.val());
-  
   g.innerHTML = '<h2>Duel Lobby</h2><p>Share this code with your opponent:</p><div class="code">'+esc(ROOM_CODE)+'</div>'+
-  '<p>'+(opponentData ? '⚔️ <b>'+esc(opponentData.name)+'</b> is here ' + (opponentData.ready ? 'and ready!' : '(waiting...)') : 'Waiting for opponent to join...')+'</p>'+
-  '<button class="btn" id="rd" '+(opponentData ? '' : 'disabled')+'>' + (isReady ? 'Ready! Waiting for start...' : 'I\'m Ready') + '</button> '+
-  '<button class="opt" id="bk">Leave</button>';
+  '<p>'+(opponentData ? '⚔️ <b>'+esc(opponentData.name)+'</b> is in room ' + (opponentData.ready ? 'and ready!' : '(waiting...)') : 'Waiting for opponent to enter code...')+'</p>'+
+  '<button class="btn" id="rd" '+(opponentData ? '' : 'disabled')+'>' + (myReadyState ? 'Ready! Waiting for start...' : 'I\'m Ready') + '</button> '+
+  '<button class="opt" id="bk">Leave Room</button>';
   
   document.getElementById("bk").onclick = title;
   document.getElementById("rd").onclick = function(){
-    duelRef.child("players/" + playerId + "/ready").set(true);
+    myReadyState = true;
+    duelRef.child(playerId).update({ ready: true });
+    drawDuelLobby(opponentData);
   };
 }
 
-function updateOpponentHUD(){
+function updateOpponentHUD(opponentData){
   if(!opponentData) { OP.textContent = "⚔️ Opponent disconnected"; return; }
   OP.textContent = "⚔️ " + esc(opponentData.name) + ": ⭐ " + (opponentData.score||0) + "  ❤️ " + (opponentData.hearts??3) + "  Stage " + ((opponentData.stage||0)+1) + (opponentData.done ? " ✔" : "");
 }
@@ -432,8 +427,9 @@ function win(){
  hudUp();
  if(MODE==="duel"){
    PH="end";
-   duelRef.child("players/" + playerId).update({ done: true, score: score });
-   drawDuelEnd();
+   duelRef.child(playerId).update({ done: true, score: score });
+   var oppKey = Object.keys(allPlayersInRoom).find(k => k !== playerId);
+   drawDuelEnd(oppKey ? allPlayersInRoom[oppKey] : null);
    return;
  }
  var r=hearts===3?"Transcription Legend 🏆":hearts===2?"RNAP Pro 🥇":"Survivor 🥈";
@@ -448,18 +444,19 @@ function over(){
  submitScoreToGlobal(score);
  if(MODE==="duel"){
    PH="end";
-   duelRef.child("players/" + playerId).update({ done: true, score: score });
-   drawDuelEnd();
+   duelRef.child(playerId).update({ done: true, score: score });
+   var oppKey = Object.keys(allPlayersInRoom).find(k => k !== playerId);
+   drawDuelEnd(oppKey ? allPlayersInRoom[oppKey] : null);
    return;
  }
  g.innerHTML='<h2>Game over 💔</h2><p>You fell off the DNA at stage '+(si+1)+'. Score: '+score+(isNewBest?'. <b>New Personal Best!</b>':'.')+'</p><button class="btn" id="go">Try Again</button><div class="lb" id="lb"></div>';
  document.getElementById("go").onclick=title;drawLB();
 }
 
-function drawDuelEnd(){
+function drawDuelEnd(opponentData){
   var h='<p class="big">'+score+'</p>';
   if(!opponentData) h+='<h2>Opponent left 🏳️</h2><p>You win by forfeit!</p>';
-  else if(!opponentData.done) h+='<h2>Finished!</h2><p>Waiting for '+esc(opponentData.name)+' to complete their run... (Current: '+opponentData.score+' pts)</p>';
+  else if(!opponentData.done) h+='<h2>Finished!</h2><p>Waiting for '+esc(opponentData.name)+' to complete their run... (Current: '+(opponentData.score||0)+' pts)</p>';
   else {
     var oppScore = opponentData.score || 0;
     if(score > oppScore) h+='<h2>You Win! 🏆</h2>';
