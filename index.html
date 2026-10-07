@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Copy the Gene: Race, Shop & Duel</title>
+<title>Copy the Gene: Race, Shop, Duel & Endless</title>
 <!-- Firebase SDKs for Global Leaderboard & Duels -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
@@ -11,13 +11,19 @@
 :root{--bg:#fff8ec;--ink:#1d2a4a;--card:#fff;--line:#1d2a4a;--yel:#ffc83d;--cor:#ff6b57;--mint:#5fd3a6;--sky:#8cc8ff;--mut:#5b6785;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121a30;--ink:#fff4dc;--card:#1c2745;--line:#fff4dc;--mut:#a9b3d1}}
 :root[data-theme="dark"]{--bg:#121a30;--ink:#fff4dc;--card:#1c2745;--line:#fff4dc;--mut:#a9b3d1}
+:root[data-theme="cyberpunk"]{--bg:#0d0221;--ink:#00f0ff;--card:#190a38;--line:#ff007f;--yel:#ff007f;--cor:#ff003c;--mint:#00f0ff;--sky:#7000ff;--mut:#9a4bff}
+:root[data-theme="biohazard"]{--bg:#0b1d0e;--ink:#55ff55;--card:#132e17;--line:#33cc33;--yel:#33cc33;--cor:#ff3300;--mint:#55ff55;--sky:#1a5e22;--mut:#2f8537}
+:root[data-theme="gold"]{--bg:#1a1400;--ink:#ffe680;--card:#332900;--line:#ffd700;--yel:#ffd700;--cor:#ff4500;--mint:#ffe680;--sky:#806600;--mut:#b39700}
+
 html{scroll-padding-top:env(safe-area-inset-top,0px)}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:"Bricolage Grotesque","Trebuchet MS",system-ui,sans-serif;line-height:1.45;font-size:16px}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Bricolage Grotesque","Trebuchet MS",system-ui,sans-serif;line-height:1.45;font-size:16px;transition:background .3s,color .3s}
 main{max-width:520px;margin:0 auto;padding:14px 14px 50px}
 .hud{display:flex;justify-content:space-between;align-items:center;font-weight:800;margin-bottom:10px;gap:6px;flex-wrap:wrap}
 .hud span{background:var(--card);border:2px solid var(--line);border-radius:999px;padding:4px 10px;white-space:nowrap;font-size:.9rem}
-.card{background:var(--card);border:3px solid var(--line);border-radius:22px;padding:18px;box-shadow:6px 6px 0 var(--line)}
+.card{background:var(--card);border:3px solid var(--line);border-radius:22px;padding:18px;box-shadow:6px 6px 0 var(--line);transition:transform .1s}
+.card.shake{animation:shake 0.3s ease-in-out}
+@keyframes shake { 0%{transform:translate(0,0)} 25%{transform:translate(-6px,0)} 50%{transform:translate(6px,0)} 75%{transform:translate(-6px,0)} 100%{transform:translate(0,0)} }
 .hero{background:var(--yel);color:#1d2a4a}
 h1{font-size:2.2rem;line-height:1.05;margin:0 0 8px;letter-spacing:-.02em}
 h2{margin:0 0 6px;font-size:1.3rem}
@@ -59,6 +65,10 @@ input[type="text"]{font:inherit;font-weight:800;text-align:center;width:100%;pad
 .shop-item div{text-align:left}
 .opp{background:var(--sky);color:#10243f;border:2px solid var(--line);border-radius:12px;padding:6px 12px;margin-bottom:10px;font-weight:700;font-size:.9rem}
 .code{font-size:2.4rem;font-weight:800;letter-spacing:.25em;text-align:center;margin:10px 0}
+.boss-box{border:3px solid var(--cor);background:var(--bg);border-radius:14px;padding:10px;margin-bottom:12px;text-align:center}
+.boss-hp{height:16px;background:rgba(128,128,128,.3);border-radius:999px;overflow:hidden;border:2px solid var(--line);margin-top:4px}
+.boss-hp i{display:block;height:100%;background:var(--cor);width:100%;transition:width .4s}
+.title-tag{display:inline-block;background:var(--line);color:var(--bg);font-size:.75rem;padding:2px 8px;border-radius:999px;margin-left:6px;vertical-align:middle}
 </style>
 </head>
 <body>
@@ -73,6 +83,57 @@ input[type="text"]{font:inherit;font-weight:800;text-align:center;width:100%;pad
 <div class="card" id="g"></div>
 </main>
 <script>
+// Web Audio Synthesizer for SFX
+var audioCtx = null;
+function playSFX(type) {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    var osc = audioCtx.createOscillator();
+    var gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    var now = audioCtx.currentTime;
+
+    if (type === 'ok') {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(587.33, now); // D5
+      osc.frequency.exponentialRampToValueAtTime(880, now + 0.15); // A5
+      gain.gain.setValueAtTime(0.2, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+      osc.start(now); osc.stop(now + 0.15);
+    } else if (type === 'bad') {
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(150, now);
+      osc.frequency.linearRampToValueAtTime(80, now + 0.25);
+      gain.gain.setValueAtTime(0.3, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+      osc.start(now); osc.stop(now + 0.25);
+      if(navigator.vibrate) navigator.vibrate(80);
+    } else if (type === 'coin') {
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(987.77, now); // B5
+      osc.frequency.setValueAtTime(1318.51, now + 0.08); // E6
+      gain.gain.setValueAtTime(0.2, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+      osc.start(now); osc.stop(now + 0.25);
+    } else if (type === 'tick') {
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(800, now);
+      gain.gain.setValueAtTime(0.05, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+      osc.start(now); osc.stop(now + 0.04);
+    } else if (type === 'strike') {
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(300, now);
+      osc.frequency.exponentialRampToValueAtTime(50, now + 0.3);
+      gain.gain.setValueAtTime(0.4, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+      osc.start(now); osc.stop(now + 0.3);
+    }
+  } catch(e) {}
+}
+
 var firebaseConfig = {
   databaseURL: "https://med-game-leaderboard-default-rtdb.firebaseio.com"
 };
@@ -89,6 +150,14 @@ var duelRef = null, allPlayersInRoom = {}, myReadyState = false;
 
 var items={heart:0,freeze:0,double:0};
 var doubleCoinActive=false;
+var bossHP=100;
+var currentTheme="light";
+var currentTitle="Student";
+var unlockedThemes=["light"];
+var unlockedTitles=["Student"];
+var loginStreak=1;
+var lastLoginDate="";
+var zipTaps=0;
 
 try{
   pb=+localStorage.getItem("ctg_pb")||0;
@@ -98,7 +167,37 @@ try{
   if(savedName) playerName = savedName;
   var savedId = localStorage.getItem("ctg_id");
   if(savedId) playerId = savedId; else localStorage.setItem("ctg_id", playerId);
+  
+  currentTheme = localStorage.getItem("ctg_theme") || "light";
+  currentTitle = localStorage.getItem("ctg_title") || "Student";
+  unlockedThemes = JSON.parse(localStorage.getItem("ctg_unlocked_themes")) || ["light"];
+  unlockedTitles = JSON.parse(localStorage.getItem("ctg_unlocked_titles")) || ["Student"];
+  loginStreak = +localStorage.getItem("ctg_login_streak") || 1;
+  lastLoginDate = localStorage.getItem("ctg_login_date") || "";
 }catch(e){}
+
+function applyTheme(theme) {
+  currentTheme = theme;
+  document.documentElement.setAttribute("data-theme", theme);
+  saveState();
+}
+applyTheme(currentTheme);
+
+function checkDailyStreak() {
+  var today = new Date().toDateString();
+  if (lastLoginDate !== today) {
+    var yesterday = new Date(Date.now() - 86400000).toDateString();
+    if (lastLoginDate === yesterday) {
+      loginStreak++;
+    } else if (lastLoginDate !== "") {
+      loginStreak = 1;
+    }
+    lastLoginDate = today;
+    saveState();
+    return true; // Claim reward
+  }
+  return false;
+}
 
 function saveState(){
   try{
@@ -106,6 +205,12 @@ function saveState(){
     localStorage.setItem("ctg_coins",coins);
     localStorage.setItem("ctg_items",JSON.stringify(items));
     localStorage.setItem("ctg_name",playerName);
+    localStorage.setItem("ctg_theme",currentTheme);
+    localStorage.setItem("ctg_title",currentTitle);
+    localStorage.setItem("ctg_unlocked_themes",JSON.stringify(unlockedThemes));
+    localStorage.setItem("ctg_unlocked_titles",JSON.stringify(unlockedTitles));
+    localStorage.setItem("ctg_login_streak",loginStreak);
+    localStorage.setItem("ctg_login_date",lastLoginDate);
   }catch(e){}
 }
 
@@ -121,7 +226,7 @@ function submitScoreToGlobal(finalScore){
   if(finalScore <= 0) return;
   db.ref("leaderboard/" + playerId).transaction(function(current) {
     if(!current || finalScore > (current.best || 0)){
-      return { id: playerId, name: playerName, best: finalScore, t: Date.now() };
+      return { id: playerId, name: playerName, title: currentTitle, best: finalScore, t: Date.now() };
     }
     return current;
   });
@@ -160,16 +265,30 @@ S[1].sec=10;S[2].sec=9;S[3].sec=9;S[4].sec=6;
 function esc(t){return String(t).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
 function shuf(a){for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=a[i];a[i]=a[j];a[j]=t}return a}
 function stopT(){clearInterval(tmr);tmr=null}
-function startT(sec,end){stopT();tt=sec;tl=sec;tmr=setInterval(function(){tl-=.1;var b=document.getElementById("tb"),c=document.getElementById("tc");
- if(b){b.style.width=Math.max(0,tl/tt*100)+"%";b.style.background=tl/tt<.3?"var(--cor)":"var(--mint)"}
- if(c)c.textContent="⏱ "+Math.max(0,Math.ceil(tl))+"s";
- if(tl<=0){stopT();end()}},100)}
+function startT(sec,end){
+  stopT();tt=sec;tl=sec;
+  tmr=setInterval(function(){
+    tl-=.1;
+    var b=document.getElementById("tb"),c=document.getElementById("tc");
+    if(b){b.style.width=Math.max(0,tl/tt*100)+"%";b.style.background=tl/tt<.3?"var(--cor)":"var(--mint)"}
+    if(c)c.textContent="⏱ "+Math.max(0,Math.ceil(tl))+"s";
+    if(tl<=3 && tl>0 && Math.abs(Math.round(tl)-tl)<0.05) playSFX('tick');
+    if(tl<=0){stopT();end()}
+  },100)
+}
 function tbar(){return '<div class="tbar"><i id="tb"></i></div><div class="tc" id="tc"></div>'}
 
 function addCoins(amount){
   var mult = doubleCoinActive ? 2 : 1;
-  coins += (amount * mult);
+  var earned = amount * mult;
+  coins += earned;
+  playSFX('coin');
   saveState();
+}
+
+function triggerShake() {
+  g.classList.add("shake");
+  setTimeout(function(){ g.classList.remove("shake"); }, 300);
 }
 
 function hudUp(){
@@ -179,7 +298,7 @@ function hudUp(){
   document.getElementById("st").textContent="🔥 "+streak;
   document.getElementById("cc").textContent="🪙 "+coins;
   if(MODE==="duel" && duelRef){
-    duelRef.child(playerId).update({ score: score, hearts: Math.max(hearts,0), stage: si, name: playerName });
+    duelRef.child(playerId).update({ score: score, hearts: Math.max(hearts,0), stage: si, name: playerName, title: currentTitle });
   }
 }
 
@@ -203,8 +322,8 @@ function usePwr(type){
 
 function drawLB(){
   var el=document.getElementById("lb");if(!el)return;
-  var h='<p><b>Your Name:</b> '+esc(playerName)+' <button class="btn" style="padding:2px 8px;font-size:.8rem" onclick="changeName()">Edit</button></p>';
-  h+='<p><b>Your Best: '+pb+' pts | 🪙 Balance: '+coins+'</b></p>';
+  var h='<p><b>Name:</b> '+esc(playerName)+' <span class="title-tag">'+esc(currentTitle)+'</span> <button class="btn" style="padding:2px 8px;font-size:.8rem" onclick="changeName()">Edit</button></p>';
+  h+='<p><b>Your Best: '+pb+' pts | 🪙 Balance: '+coins+' | 🔥 Streak: '+loginStreak+'d</b></p>';
   h+='<h2>🏆 Global Leaderboard ('+leaderboardData.length+')</h2>';
   if(!leaderboardData.length) h+='<p>No global high scores yet. Be the first!</p>';
   else{
@@ -212,7 +331,7 @@ function drawLB(){
     leaderboardData.forEach(function(r,i){
       var medal = ["🥇","🥈","🥉"][i] || (i+1)+".";
       var isMe = r.id === playerId;
-      h+='<li class="'+(isMe?"me":"")+'"><span>'+medal+' '+esc(r.name)+(isMe?' (You)':'')+'</span><span>'+r.best+' pts</span></li>';
+      h+='<li class="'+(isMe?"me":"")+'"><span>'+medal+' '+esc(r.name)+' <small>('+(r.title||'Student')+')</small>'+(isMe?' (You)':'')+'</span><span>'+r.best+' pts</span></li>';
     });
     h+='</ol>';
   }
@@ -233,25 +352,68 @@ function title(){
  stopT();hud.hidden=true;OP.hidden=true;MODE="solo";doubleCoinActive=false;
  if(duelRef) { duelRef.off(); duelRef=null; }
  g.className="card hero";
- g.innerHTML='<h1>Copy the Gene ⏱</h1><p>Race against the clock to copy DNA into RNA and conquer transcription biology!</p>'+
+ 
+ var showRewardModal = checkDailyStreak();
+ var streakBonusHtml = showRewardModal ? '<div style="background:var(--card);padding:10px;border-radius:12px;margin-bottom:10px;border:2px solid var(--line)">🎁 <b>Daily Reward!</b> Day '+loginStreak+' streak! Claimed +'+(loginStreak*20)+' 🪙</div>' : '';
+ if(showRewardModal) addCoins(loginStreak * 20);
+
+ g.innerHTML=streakBonusHtml+'<h1>Copy the Gene ⏱</h1><p>Race against the clock to copy DNA into RNA and conquer transcription biology!</p>'+
  '<div class="row">'+
- '<button class="btn" id="go">Play Game</button>'+
+ '<button class="btn" id="go">Play Campaign</button>'+
+ '<button class="btn" id="endless" style="background:var(--sky)">♾️ Endless</button>'+
  '<button class="btn" id="shp" style="background:var(--mint)">🛍️ Shop</button>'+
  '<button class="btn" id="dl">⚔️ 1v1 Duel</button>'+
  '</div><div class="lb" id="lb"></div>';
- document.getElementById("go").onclick=function(){hearts=3;score=0;streak=0;si=0;intro()};
+ document.getElementById("go").onclick=function(){hearts=3;score=0;streak=0;si=0;unzipMinigame()};
+ document.getElementById("endless").onclick=startEndlessMode;
  document.getElementById("shp").onclick=openShop;
  document.getElementById("dl").onclick=duelMenu;
  drawLB();
+}
+
+function unzipMinigame(){
+  hud.hidden=true;
+  zipTaps=10;
+  g.className="card";
+  g.innerHTML='<h2>⚡ Unzip the DNA!</h2><p>Rapidly tap Helicase to unbind hydrogen bonds before starting transcription!</p>'+
+  '<div class="q" style="font-size:2rem;text-align:center;margin:20px 0" id="zt">🔒 ' + zipTaps + ' Taps Left</div>'+
+  '<button class="btn" id="zb" style="width:100%;padding:20px;font-size:1.4rem">🧬 TAP HELICASE!</button>';
+  
+  startT(4, function(){
+    intro(); // Skip if failed
+  });
+  
+  document.getElementById("zb").onclick=function(){
+    zipTaps--;
+    playSFX('tick');
+    if(zipTaps <= 0){
+      stopT();
+      playSFX('ok');
+      score += 25;
+      addCoins(10);
+      intro();
+    } else {
+      document.getElementById("zt").textContent = '🔒 ' + zipTaps + ' Taps Left';
+    }
+  };
 }
 
 function openShop(){
   stopT();hud.hidden=true;OP.hidden=true;
   g.className="card";
   g.innerHTML='<h2>🛍️ Game Shop</h2><p>Balance: <b>🪙 '+coins+' coins</b></p>'+
+  '<h3>Consumables</h3>'+
   '<div class="shop-item"><div><b>❤️ Extra Heart</b><br><small>Restores 1 heart mid-game</small></div><button class="btn" onclick="buyItem(\'heart\', 50)">50 🪙</button></div>'+
   '<div class="shop-item"><div><b>⏱️ Freeze Time</b><br><small>Adds +5 seconds to timer</small></div><button class="btn" onclick="buyItem(\'freeze\', 30)">30 🪙</button></div>'+
   '<div class="shop-item"><div><b>🪙 Double Coins</b><br><small>2x coin earnings for 1 stage</small></div><button class="btn" onclick="buyItem(\'double\', 40)">40 🪙</button></div>'+
+  '<h3>Themes 🎨</h3>'+
+  '<div class="shop-item"><div><b>Dark Cyberpunk</b></div>'+(unlockedThemes.includes('cyberpunk') ? '<button class="btn" onclick="applyTheme(\'cyberpunk\')">Equip</button>' : '<button class="btn" onclick="buyTheme(\'cyberpunk\', 150)">150 🪙</button>')+'</div>'+
+  '<div class="shop-item"><div><b>Biohazard Green</b></div>'+(unlockedThemes.includes('biohazard') ? '<button class="btn" onclick="applyTheme(\'biohazard\')">Equip</button>' : '<button class="btn" onclick="buyTheme(\'biohazard\', 150)">150 🪙</button>')+'</div>'+
+  '<div class="shop-item"><div><b>Gold Edition</b></div>'+(unlockedThemes.includes('gold') ? '<button class="btn" onclick="applyTheme(\'gold\')">Equip</button>' : '<button class="btn" onclick="buyTheme(\'gold\', 300)">300 🪙</button>')+'</div>'+
+  '<h3>Titles 🏅</h3>'+
+  '<div class="shop-item"><div><b>RNA Primase</b></div>'+(unlockedTitles.includes('RNA Primase') ? '<button class="btn" onclick="setTitle(\'RNA Primase\')">Equip</button>' : '<button class="btn" onclick="buyTitle(\'RNA Primase\', 100)">100 🪙</button>')+'</div>'+
+  '<div class="shop-item"><div><b>Helicase Unzipper</b></div>'+(unlockedTitles.includes('Helicase Unzipper') ? '<button class="btn" onclick="setTitle(\'Helicase Unzipper\')">Equip</button>' : '<button class="btn" onclick="buyTitle(\'Helicase Unzipper\', 150)">150 🪙</button>')+'</div>'+
+  '<div class="shop-item"><div><b>Ribosome Master</b></div>'+(unlockedTitles.includes('Ribosome Master') ? '<button class="btn" onclick="setTitle(\'Ribosome Master\')">Equip</button>' : '<button class="btn" onclick="buyTitle(\'Ribosome Master\', 250)">250 🪙</button>')+'</div>'+
   '<div class="fb" id="sfb"></div>'+
   '<button class="opt" id="bk">Back to Menu</button>';
   document.getElementById("bk").onclick=title;
@@ -270,7 +432,31 @@ function buyItem(type, cost){
   }
 }
 
-/* REFIXED 1v1 DUEL REAL-TIME SYNC */
+function buyTheme(t, cost){
+  if(coins >= cost){
+    coins -= cost;
+    unlockedThemes.push(t);
+    applyTheme(t);
+    openShop();
+  }
+}
+
+function buyTitle(t, cost){
+  if(coins >= cost){
+    coins -= cost;
+    unlockedTitles.push(t);
+    setTitle(t);
+    openShop();
+  }
+}
+
+function setTitle(t){
+  currentTitle = t;
+  saveState();
+  if(pb > 0) submitScoreToGlobal(pb);
+  openShop();
+}
+
 function duelMenu(){
   stopT();hud.hidden=true;OP.hidden=true;g.className="card";
   g.innerHTML='<h2>1v1 Duel ⚔️</h2><p>Play identical questions live against a friend!</p>'+
@@ -295,7 +481,7 @@ function joinDuelRoom(code){
   ROOM_CODE = code; MODE = "duel"; PH = "lobby"; myReadyState = false; allPlayersInRoom = {};
   duelRef = db.ref("rooms/" + code);
   
-  duelRef.child(playerId).set({ name: playerName, ready: false, score: 0, hearts: 3, stage: 0, done: false });
+  duelRef.child(playerId).set({ name: playerName, title: currentTitle, ready: false, score: 0, hearts: 3, stage: 0, done: false });
   duelRef.child(playerId).onDisconnect().remove();
 
   duelRef.on("value", function(snap){
@@ -338,11 +524,13 @@ function updateOpponentHUD(opponentData){
 function intro(){
  hudUp();var s=S[si];g.className="card";
  doubleCoinActive=false;
+ if(si === 4) bossHP = 100;
  g.innerHTML='<h2>'+s.n+'</h2><p>'+s.d+'</p><p><b>'+(s.t==="build"?"Time depends on strand length.":s.sec+" seconds per question.")+'</b></p><button class="btn" id="go">Go</button>';
  document.getElementById("go").onclick=function(){qi=0;if(s.t==="build")newRound();else{s.o=shuf(s.q.slice());showQ()}};
 }
 
 function ok(){
+  playSFX('ok');
   streak++;
   var p=10+Math.min(streak,5)*2+Math.round(Math.max(tl,0)/tt*8);
   score+=p;
@@ -350,12 +538,19 @@ function ok(){
   return p;
 }
 
-function bad(){streak=0;hearts--;hudUp();if(hearts<=0){setTimeout(over,1200);return true}return false}
+function bad(){
+  playSFX('bad');
+  triggerShake();
+  streak=0;hearts--;hudUp();
+  if(hearts<=0){setTimeout(over,1200);return true}
+  return false;
+}
 function bar(n,t){return '<div class="bar"><i style="width:'+(n/t*100)+'%"></i></div>'}
 
 function showQ(){
  var s=S[si],q=s.o[qi];locked=false;hudUp();
- var h=bar(qi,s.o.length)+'<div id="pwr-container">'+powerBar()+'</div>'+tbar()+'<div class="q">'+q[0]+'</div>';
+ var bossHtml = si === 4 ? '<div class="boss-box"><b>👾 Dr. Inhibitor</b><div class="boss-hp"><i style="width:'+bossHP+'%"></i></div></div>' : '';
+ var h=bossHtml+bar(qi,s.o.length)+'<div id="pwr-container">'+powerBar()+'</div>'+tbar()+'<div class="q">'+q[0]+'</div>';
  shuf([0,1,2]).forEach(function(k){h+='<button class="opt" data-k="'+k+'">'+q[1][k]+'</button>'});
  g.innerHTML=h+'<div class="fb" aria-live="polite"></div>';
  g.querySelectorAll(".opt").forEach(function(b){b.onclick=function(){pick(+b.dataset.k,b)}});
@@ -365,7 +560,11 @@ function showQ(){
 function pick(k,b){
  if(locked)return;locked=true;stopT();var s=S[si],q=s.o[qi],fb=g.querySelector(".fb"),dead=false;
  g.querySelectorAll(".opt").forEach(function(x){if(+x.dataset.k===q[2])x.classList.add("ok")});
- if(k===q[2]){var p=ok();fb.textContent="✅ +"+p+" pts (+"+(doubleCoinActive?10:5)+" 🪙). "+q[3]}
+ if(k===q[2]){
+   var p=ok();
+   if(si === 4) { bossHP = Math.max(0, bossHP - 25); playSFX('strike'); }
+   fb.textContent="✅ +"+p+" pts (+"+(doubleCoinActive?10:5)+" 🪙). "+q[3];
+ }
  else{if(b)b.classList.add("no");fb.textContent=(k<0?"⏰ Time's up! ":"❌ ")+q[3];dead=bad()}
  hudUp();if(dead)return;
  setTimeout(function(){qi++;if(qi>=s.o.length)stageDone();else showQ()},1500);
@@ -377,7 +576,7 @@ function newRound(){
 }
 
 function drawBuild(msg){
- var s=S[si],h=bar(qi,s.rounds)+'<div id="pwr-container">'+powerBar()+'</div>'+tbar()+'<div class="q">Round '+(qi+1)+': build the mRNA</div><div class="ends"><span>DNA template 3′</span><span>5′</span></div><div class="strand">';
+ var s=S[si],h=bar(qi,MODE==="endless"?100:s.rounds)+'<div id="pwr-container">'+powerBar()+'</div>'+tbar()+'<div class="q">Round '+(qi+1)+': build the mRNA</div><div class="ends"><span>DNA template 3′</span><span>5′</span></div><div class="strand">';
  seq.forEach(function(c){h+='<div class="b">'+(c==="U"?"T":c)+'</div>'});
  h+='</div><div class="ends"><span>mRNA 5′</span><span>3′</span></div><div class="strand" id="rs">';
  seq.forEach(function(c,i){h+='<div class="b r'+(i<pos?" f":"")+'">'+(i<pos?COMP[c]:"")+'</div>'});
@@ -387,7 +586,13 @@ function drawBuild(msg){
  g.querySelectorAll(".pad .btn").forEach(function(b){b.onclick=function(){tap(b.dataset.c)}});
 }
 
-function nextRound(){qi++;if(qi>=S[si].rounds)stageDone();else newRound()}
+function nextRound(){
+  qi++;
+  if(MODE==="endless"){ newEndlessRound(); }
+  else if(qi>=S[si].rounds) stageDone();
+  else newRound();
+}
+
 function buildTimeout(){
  if(locked)return;locked=true;var dead=bad();drawBuild("⏰ Time's up! Too slow.");if(!dead)setTimeout(nextRound,1200);
 }
@@ -410,6 +615,19 @@ function tap(c){
   var cells=document.querySelectorAll("#rs .b");if(cells[pos])cells[pos].classList.add("x");
   if(dead){locked=true;stopT()}
  }
+}
+
+function startEndlessMode(){
+  MODE="endless"; hearts=1; score=0; streak=0; qi=0; si=0;
+  hudUp();
+  newEndlessRound();
+}
+
+function newEndlessRound(){
+  var L=Math.min(12, 4 + Math.floor(qi/2));
+  var a="ACGT";seq=[];for(var i=0;i<L;i++)seq.push(a[Math.floor(Math.random()*4)]);pos=0;locked=false;drawBuild();
+  var limit = Math.max(2.5, 5 + L*1.2 - (qi*0.15));
+  startT(limit, function(){buildTimeout()});
 }
 
 function stageDone(){
@@ -449,7 +667,7 @@ function over(){
    drawDuelEnd(oppKey ? allPlayersInRoom[oppKey] : null);
    return;
  }
- g.innerHTML='<h2>Game over 💔</h2><p>You fell off the DNA at stage '+(si+1)+'. Score: '+score+(isNewBest?'. <b>New Personal Best!</b>':'.')+'</p><button class="btn" id="go">Try Again</button><div class="lb" id="lb"></div>';
+ g.innerHTML='<h2>Game over 💔</h2><p>You fell off the DNA strand. Score: '+score+(isNewBest?'. <b>New Personal Best!</b>':'.')+'</p><button class="btn" id="go">Try Again</button><div class="lb" id="lb"></div>';
  document.getElementById("go").onclick=title;drawLB();
 }
 
